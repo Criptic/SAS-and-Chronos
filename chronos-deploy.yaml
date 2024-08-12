@@ -1,0 +1,102 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${name}
+  namespace: ${namespace}
+spec:
+  selector:
+    matchLabels:
+      app: ${name}
+  template:
+    metadata:
+      labels:
+        app: ${name}
+    spec:
+      securityContext:
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      containers:
+      - name: ${name}
+        image: ${image}
+        imagePullPolicy: ${imagePullPolicy}
+        resources:
+          requests:
+            memory: ${memoryRequest}
+            cpu: ${cpuRequest}
+        ports:
+        - containerPort: ${containerPort}
+          protocol: ${protocol}
+      imagePullSecrets:
+        - name: ${imagePullSecret}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - ${name}
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 1
+              preference:
+                matchExpressions:
+                - key: "kubernetes.azure.com/scalesetpriority"
+                  operator: In
+                  values:
+                  - spot
+      tolerations:
+      - key: app
+        operator: Equal
+        value: ${name}
+        effect: NoSchedule
+      - key: "kubernetes.azure.com/scalesetpriority"
+        operator: Equal
+        value: spot
+        effect: NoSchedule
+      volumes:
+        - name: ${volumeName}
+          nfs:
+            server: ${nfsServer}
+            path: ${nfsPath}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${name}
+  namespace: ${namespace}
+spec:
+  type: ClusterIP
+  selector:
+    app: ${name}
+  ports:
+  - port: 443
+    targetPort: ${containerPort}
+    protocol: ${protocol}
+---
+kind: Ingress
+apiVersion: networking.k8s.io/v1
+metadata:
+  name: ${name}
+  namespace: ${namespace}
+  annotations:
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - ${ingressHost}
+    secretName: ${tlsSecretName}
+  rules:
+    - host: ${ingressHost}
+      http:
+        paths:
+          - path: /forecast(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: ${name}
+                port:
+                  number: 443
